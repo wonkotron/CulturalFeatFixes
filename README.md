@@ -3,9 +3,6 @@ Fixes and improves implementation of Player Culture Feats in Mount and Blade II:
 
 This mod is currently a bug fix patch that affects player culture perks.  The goal is for this project is to find and fix issues with perks not being applied, then implement balancing improvements.  It uses the Harmony library (https://harmony.pardeike.net/).
 
-For source code and to report issues, please see:
-https://github.com/wonkotron/CulturalFeatFixes
-
 **Game Version Baseline:**  e0.1.0 beta
 
 **Mod Status**
