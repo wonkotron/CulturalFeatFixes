@@ -13,9 +13,5 @@ namespace CulturalFeatFixes {
             var harmony = new Harmony("mod.bannerlord.wonkotron");
             harmony.PatchAll();
         }
-
-        protected override void OnBeforeInitialModuleScreenSetAsRoot() {
-            InformationManager.DisplayMessage(new InformationMessage("Loaded " + ModuleName, Color.White));
-        }
     }
 }
