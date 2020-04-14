@@ -5,6 +5,7 @@ using TaleWorlds.Core;
 using TaleWorlds.Localization;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.SandBox.GameComponents.Map;
+using System.Security.Cryptography;
 
 namespace CulturalFeatFixes.Models {
     public class CFF_PartySpeedCalculatingModel : DefaultPartySpeedCalculatingModel {
@@ -21,42 +22,55 @@ namespace CulturalFeatFixes.Models {
 
 			AddCargoStats(mobileParty, ref numberOfAvailableMounts, ref totalWeightCarried, ref herdSize);
 
-			float num5 = GetTotalWeightOfItems(mobileParty);
-			int num6 = Campaign.Current.Models.InventoryCapacityModel.CalculateInventoryCapacity(mobileParty, null, additionalTroopOnFootCount, additionalTroopOnHorseCount, 0, false);
-			int num7 = party.NumberOfMenWithHorse + additionalTroopOnHorseCount;
-			int num8 = party.NumberOfMenWithoutHorse + additionalTroopOnFootCount;
-			int num9 = party.MemberRoster.TotalWounded;
-			int num10 = party.PrisonRoster.TotalManCount;
+			float totalWeightOfItems = GetTotalWeightOfItems(mobileParty);
+			int inventryCapacity = Campaign.Current.Models.InventoryCapacityModel.CalculateInventoryCapacity(mobileParty, null, additionalTroopOnFootCount, additionalTroopOnHorseCount, 0, false);
+			int horsemenCount = party.NumberOfMenWithHorse + additionalTroopOnHorseCount;
+			int footmenCount = party.NumberOfMenWithoutHorse + additionalTroopOnFootCount;
+			int woundedCount = party.MemberRoster.TotalWounded;
+			int prisonerCount = party.PrisonRoster.TotalManCount;
 			float morale = mobileParty.Morale;
 			if (mobileParty.AttachedParties.Count != 0) {
 				foreach (MobileParty attachedParty in mobileParty.AttachedParties) {
 					AddCargoStats(attachedParty, ref numberOfAvailableMounts, ref totalWeightCarried, ref herdSize);
 					menCount += attachedParty.MemberRoster.TotalManCount;
-					num5 += GetTotalWeightOfItems(attachedParty);
-					num6 += Campaign.Current.Models.InventoryCapacityModel.CalculateInventoryCapacity(attachedParty, null, 0, 0, 0, false);
-					num7 += attachedParty.Party.NumberOfMenWithHorse;
-					num8 += attachedParty.Party.NumberOfMenWithoutHorse;
-					num9 += attachedParty.MemberRoster.TotalWounded;
-					num10 += attachedParty.PrisonRoster.TotalManCount;
+					totalWeightOfItems += GetTotalWeightOfItems(attachedParty);
+					inventryCapacity += Campaign.Current.Models.InventoryCapacityModel.CalculateInventoryCapacity(attachedParty, null, 0, 0, 0, false);
+					horsemenCount += attachedParty.Party.NumberOfMenWithHorse;
+					footmenCount += attachedParty.Party.NumberOfMenWithoutHorse;
+					woundedCount += attachedParty.MemberRoster.TotalWounded;
+					prisonerCount += attachedParty.PrisonRoster.TotalManCount;
 				}
 			}
 			float baseNumber = CalculateBaseSpeedForParty(menCount);
 			ExplainedNumber explainedNumber = new ExplainedNumber(baseNumber, explanation, null);
-			float cavalryRatioModifier = this.GetCavalryRatioModifier(menCount, num7);
+			float cavalryRatioModifier = this.GetCavalryRatioModifier(menCount, horsemenCount);
 			explainedNumber.AddFactor(cavalryRatioModifier, _textCavalry);
-			if (mobileParty.Leader != null) {
-				PerkHelper.AddFeatBonusForPerson(DefaultFeats.Cultural.KhuzaitCavalryAgility, mobileParty.Leader, ref explainedNumber);
-			}
-			int num11 = Math.Min(num8, numberOfAvailableMounts);
-			float mountedFootmenRatioModifier = this.GetMountedFootmenRatioModifier(menCount, num11);
+
+			int min_footmenCount_numberOfAvailableMounts = Math.Min(footmenCount, numberOfAvailableMounts);
+			float mountedFootmenRatioModifier = this.GetMountedFootmenRatioModifier(menCount, min_footmenCount_numberOfAvailableMounts);
 			explainedNumber.AddFactor(mountedFootmenRatioModifier, _textMountedFootmen);
-			float num12 = Math.Min(num5, (float)num6);
+
+			if (mobileParty.Leader != null) {
+				// @CFF - Calculates off of base value instead of (cavalry + footmen on horses) * bonus
+				// PerkHelper.AddFeatBonusForPerson(DefaultFeats.Cultural.KhuzaitCavalryAgility, mobileParty.Leader, ref explainedNumber);
+
+				// @CFF - Replace call to PerkHelper.AddFeatBonusForPerson and subsequent private calls
+				if (mobileParty.Leader != null && mobileParty.Leader.GetFeatValue(DefaultFeats.Cultural.KhuzaitCavalryAgility)) {
+					if (DefaultFeats.Cultural.KhuzaitCavalryAgility.IncrementType == FeatObject.AdditionType.AddFactor) {
+						// Add khuzait bonus based on cavalry horsemen bonus already applied instead of base
+						float khuzaitBonusFactor = (cavalryRatioModifier + mountedFootmenRatioModifier) * DefaultFeats.Cultural.KhuzaitCavalryAgility.EffectBonus;
+						explainedNumber.AddFactor(khuzaitBonusFactor, DefaultFeats.Cultural.KhuzaitCavalryAgility.Name);
+					}
+				}
+			}
+			
+			float num12 = Math.Min(totalWeightOfItems, (float)inventryCapacity);
 			if (num12 > 0f) {
-				float cargoEffect = this.GetCargoEffect(num12, num6);
+				float cargoEffect = this.GetCargoEffect(num12, inventryCapacity);
 				explainedNumber.AddFactor(cargoEffect, _textCargo);
 			}
-			if (totalWeightCarried > (float)num6) {
-				float overBurdenedEffect = this.GetOverBurdenedEffect(totalWeightCarried - (float)num6, num6);
+			if (totalWeightCarried > (float)inventryCapacity) {
+				float overBurdenedEffect = this.GetOverBurdenedEffect(totalWeightCarried - (float)inventryCapacity, inventryCapacity);
 				explainedNumber.AddFactor(overBurdenedEffect, _textOverburdened);
 			}
 			if (mobileParty.Party.NumberOfAllMembers > mobileParty.Party.PartySizeLimit) {
@@ -67,12 +81,12 @@ namespace CulturalFeatFixes.Models {
 				float overPrisonerSizeEffect = this.GetOverPrisonerSizeEffect(mobileParty);
 				explainedNumber.AddFactor(overPrisonerSizeEffect, _textOverPrisonerSize);
 			}
-			herdSize += Math.Max(0, numberOfAvailableMounts - num11);
+			herdSize += Math.Max(0, numberOfAvailableMounts - min_footmenCount_numberOfAvailableMounts);
 			float herdingModifier = this.GetHerdingModifier(menCount, herdSize);
 			explainedNumber.AddFactor(herdingModifier, _textHerd);
-			float woundedModifier = this.GetWoundedModifier(menCount, num9, mobileParty);
+			float woundedModifier = this.GetWoundedModifier(menCount, woundedCount, mobileParty);
 			explainedNumber.AddFactor(woundedModifier, _textWounded);
-			float sizeModifierPrisoner = GetSizeModifierPrisoner(menCount, num10);
+			float sizeModifierPrisoner = GetSizeModifierPrisoner(menCount, prisonerCount);
 			explainedNumber.AddFactor(1f / sizeModifierPrisoner - 1f, _textPrisoners);
 			if (morale > 70f) {
 				explainedNumber.AddFactor(0.05f * ((morale - 70f) / 30f), _textHighMorale);
