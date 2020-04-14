@@ -1,11 +1,9 @@
 ﻿using System;
 using Helpers;
-using System.Reflection;
 using TaleWorlds.Core;
 using TaleWorlds.Localization;
 using TaleWorlds.CampaignSystem;
 using TaleWorlds.CampaignSystem.SandBox.GameComponents.Map;
-using System.Security.Cryptography;
 
 namespace CulturalFeatFixes.Models {
     public class CFF_PartySpeedCalculatingModel : DefaultPartySpeedCalculatingModel {
@@ -56,10 +54,17 @@ namespace CulturalFeatFixes.Models {
 
 				// @CFF - Replace call to PerkHelper.AddFeatBonusForPerson and subsequent private calls
 				if (mobileParty.Leader != null && mobileParty.Leader.GetFeatValue(DefaultFeats.Cultural.KhuzaitCavalryAgility)) {
+					// Add khuzait bonus based on cavalry horsemen bonus already applied instead of base
+					float khuzaitBonusFactor = (cavalryRatioModifier + mountedFootmenRatioModifier) * DefaultFeats.Cultural.KhuzaitCavalryAgility.EffectBonus;
 					if (DefaultFeats.Cultural.KhuzaitCavalryAgility.IncrementType == FeatObject.AdditionType.AddFactor) {
-						// Add khuzait bonus based on cavalry horsemen bonus already applied instead of base
-						float khuzaitBonusFactor = (cavalryRatioModifier + mountedFootmenRatioModifier) * DefaultFeats.Cultural.KhuzaitCavalryAgility.EffectBonus;
 						explainedNumber.AddFactor(khuzaitBonusFactor, DefaultFeats.Cultural.KhuzaitCavalryAgility.Name);
+					}
+					else if (DefaultFeats.Cultural.KhuzaitCavalryAgility.IncrementType == FeatObject.AdditionType.Add) {
+						// Backwards compatibility in case the modifier is set to Add in the future
+						explainedNumber.Add(khuzaitBonusFactor, DefaultFeats.Cultural.KhuzaitCavalryAgility.Name);
+					}
+					else {
+						// This should not occur, explicitly do nothing
 					}
 				}
 			}
@@ -102,6 +107,51 @@ namespace CulturalFeatFixes.Models {
 			}
 			if (mobileParty.IsDisorganized) {
 				explainedNumber.AddFactor(-0.3f, _textDisorganized);
+			}
+			explainedNumber.LimitMin(1f);
+			return explainedNumber.ResultNumber;
+		}
+
+		public override float CalculateFinalSpeed(MobileParty mobileParty, float baseSpeed, StatExplainer explanation) {
+			PartyBase party = mobileParty.Party;
+			ExplainedNumber explainedNumber = new ExplainedNumber(baseSpeed, explanation, null);
+			TerrainType faceTerrainType = Campaign.Current.MapSceneWrapper.GetFaceTerrainType(mobileParty.CurrentNavigationFace);
+
+			if (faceTerrainType == TerrainType.Forest) {
+				explainedNumber.AddFactor(MovingAtForestEffect, _movingInForest);
+				// @CFF - Reduce the effect of forest instead of calculating off of base speed
+				// PerkHelper.AddFeatBonusForPerson(DefaultFeats.Cultural.BattanianForestAgility, mobileParty.Leader, ref explainedNumber);
+
+				// @CFF - Replace call to PerkHelper.AddFeatBonusForPerson and subsequent private calls
+				if (mobileParty.Leader != null && mobileParty.Leader.GetFeatValue(DefaultFeats.Cultural.BattanianForestAgility)) {
+					float battanianBonusFactor = Math.Abs(MovingAtForestEffect) * DefaultFeats.Cultural.BattanianForestAgility.EffectBonus;
+
+					if (DefaultFeats.Cultural.BattanianForestAgility.IncrementType == FeatObject.AdditionType.AddFactor) {
+						explainedNumber.AddFactor(battanianBonusFactor, DefaultFeats.Cultural.BattanianForestAgility.Name);
+					}
+					else if (DefaultFeats.Cultural.BattanianForestAgility.IncrementType == FeatObject.AdditionType.Add) {
+						// Backwards compatibility in case the modifier is set to Add in the future
+						explainedNumber.Add(battanianBonusFactor, DefaultFeats.Cultural.BattanianForestAgility.Name);
+					}
+					else {
+						// This should not occur, explicitly do nothing
+					}
+				}
+			}
+
+			else if (faceTerrainType == TerrainType.Water || faceTerrainType == TerrainType.River || faceTerrainType == TerrainType.Bridge || faceTerrainType == TerrainType.ShallowRiver) {
+				explainedNumber.AddFactor(MovingAtWaterEffect, _fordEffect);
+			}
+			if (Campaign.Current.IsNight) {
+				explainedNumber.AddFactor(MovingAtNightEffect, _night);
+			}
+
+			// @CFF - Testing needed to determine if snow effect is being applied, but is being rounded out
+			if (faceTerrainType == TerrainType.Snow) {
+				explainedNumber.AddFactor(MovingOnSnowEffect, _snow);
+				if (party.Leader != null) {
+					PerkHelper.AddFeatBonusForPerson(DefaultFeats.Cultural.SturgianSnowAgility, party.Leader, ref explainedNumber);
+				}
 			}
 			explainedNumber.LimitMin(1f);
 			return explainedNumber.ResultNumber;
